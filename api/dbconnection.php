@@ -2,9 +2,9 @@
 // Database configuration
 
 $host = "localhost"; 
-$user = "u278537438_animal_8210";
-$password = "Animal_8210";
-$database = "u278537438_animal_8210";
+$user = "root";
+$password = "Laden8210";
+$database = "u920096089_vmscdb";
 
 // Create connection
 $con = mysqli_connect($host, $user, $password, $database);

@@ -49,11 +49,7 @@ if (isset($_POST['add_product'])) {
     $stmt->bind_param("ssssssis", $prod_image, $ProductName, $description, $price, $ProductTypeID, $ProductCode, $SubProductID, $unit);
 
     if ($stmt->execute()) {
-      $ProductID = $stmt->insert_id;
-      $stmt_inventory = $con->prepare("INSERT INTO tblinventory (ProductID, Quantity, unit) VALUES (?, ?, ?)");
-      $stmt_inventory->bind_param("iis", $ProductID, $Quantity, $unit);
-      $stmt_inventory->execute();
-      $stmt_inventory->close();
+
       echo "<script>alert('Product added successfully.');</script>";
     } else {
       echo "<script>alert('Something went wrong. Please try again.');</script>";
@@ -357,7 +353,7 @@ while ($row = mysqli_fetch_assoc($product_types_result)) {
                   .then(data => {
                     subProductSelect.innerHTML = '<option value="">Select Sub Category</option>'; // Reset options
                     data.forEach(function(subCategory) {
-                      subProductSelect.innerHTML += '<option value="' + subCategory.SubCatID + '">' + subCategory.SubCatName + '</option>';
+                      subProductSelect.innerHTML += '<option value="' + subCategory.SubCatId + '">' + subCategory.SubCatName + '</option>';
                     });
                   })
                   .catch(error => {
