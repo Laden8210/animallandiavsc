@@ -8,11 +8,11 @@ if (empty($_SESSION['id'])) {
     exit();
 }
 
-$trid = intval($_GET['transid']);
+$trid = $_GET['transid'];
 
 $billingQuery = $con->prepare("SELECT cashReceived, changeAmount FROM tblbilling 
     WHERE billingid = (SELECT billingid FROM tbltransaction WHERE Trans_Code = ? LIMIT 1)");
-$billingQuery->bind_param('i', $trid);
+$billingQuery->bind_param('s', $trid);
 $billingQuery->execute();
 $billingData = $billingQuery->get_result()->fetch_assoc();
 $cashReceived = $billingData['cashReceived'] ?? 0;
@@ -191,7 +191,7 @@ echo htmlspecialchars($formattedDate . ' - ' . $formattedTime);
                             FROM tbltransaction 
                             JOIN tblproducts ON tblproducts.ProductID = tbltransaction.ProductID 
                             WHERE tbltransaction.Trans_Code = ?");
-                            $ret->bind_param('ii', $trid, $trid);
+                            $ret->bind_param('ss', $trid, $trid);
                             $ret->execute();
                             $result = $ret->get_result();
                             while ($row = $result->fetch_assoc()) {

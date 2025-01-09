@@ -14,7 +14,7 @@ $start_date = $_GET['start_date'] ?? '';
 $end_date = $_GET['end_date'] ?? '';
 
 $query = "
-    SELECT tblproducts.*, tblinventory.Quantity, tblinventory.unit, tblproduct_types.TypeName
+    SELECT tblproducts.*, tblinventory.Quantity, tblproduct_types.TypeName
     FROM tblproducts
     LEFT JOIN tblinventory ON tblproducts.ProductID = tblinventory.ProductID
     LEFT JOIN tblproduct_types ON tblproducts.ProductTypeID = tblproduct_types.ProductTypeID
