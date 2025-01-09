@@ -206,20 +206,43 @@ while ($row = mysqli_fetch_assoc($product_types_result)) {
                 <th>Product Code</th>
                 <th>Image</th>
                 <th>Name</th>
-                <th>Description</th>          
+                <th>Description</th>
                 <th>Unit</th>
                 <th>Product Price</th>
+                <th>Category</th>
+                <th>Sub Category</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               <?php
+
               if (isset($_GET['search'])) {
                 $search_query = $_GET['search'];
-                $ret = mysqli_query($con, "SELECT * FROM tblproducts WHERE ProductName LIKE '%$search_query%'");
+
+                // Use a prepared statement to prevent SQL injection
+                $stmt = $con->prepare("
+                    SELECT * FROM tblproducts
+                    LEFT JOIN tblsub_category ON tblsub_category.SubCatId = tblproducts.SubCatId
+                    LEFT JOIN tblproduct_types ON tblproduct_types.ProductTypeID = tblproducts.ProductTypeID
+                    WHERE ProductName LIKE ?
+                ");
+
+                $like_query = '%' . $search_query . '%';
+                $stmt->bind_param('s', $like_query); // 's' specifies the type of the parameter (string)
+                $stmt->execute();
+                $ret = $stmt->get_result();
+                
               } else {
-                $ret = mysqli_query($con, "SELECT * FROM tblproducts ORDER BY ProductID DESC");
+                $ret = $con->query("
+                    SELECT * FROM tblproducts
+                    LEFT JOIN tblsub_category ON tblsub_category.SubCatId = tblproducts.SubCatId
+                    LEFT JOIN tblproduct_types ON tblproduct_types.ProductTypeID = tblproducts.ProductTypeID
+                    ORDER BY ProductID DESC
+                ");
               }
+
+
               $cnt = 1;
               while ($row = mysqli_fetch_array($ret)) {
 
@@ -237,6 +260,8 @@ while ($row = mysqli_fetch_assoc($product_types_result)) {
                   <td><?php echo $row['description']; ?></td>
                   <td><?php echo $row['unit']; ?></td>
                   <td>₱<?php echo $row['price']; ?></td>
+                  <td><?php echo $row['TypeName']; ?></td>
+                  <td><?php echo $row['SubCatName']; ?></td>
                   <td>
                     <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#editProductModal<?php echo $row['ProductID']; ?>">Edit</button>
                   </td>
