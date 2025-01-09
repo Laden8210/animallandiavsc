@@ -228,7 +228,6 @@ while ($row = mysqli_fetch_assoc($product_types_result)) {
                 $stmt->bind_param('s', $like_query); // 's' specifies the type of the parameter (string)
                 $stmt->execute();
                 $ret = $stmt->get_result();
-                
               } else {
                 $ret = $con->query("
                     SELECT * FROM tblproducts
@@ -306,6 +305,13 @@ while ($row = mysqli_fetch_assoc($product_types_result)) {
                 <option value="kg">kg</option>
                 <option value="g">g</option>
                 <option value="l">l</option>
+                <option value="Tablet">lTablet</option>
+                <option value="Box">Box</option>
+                <option value="Bottle">Bottle</option>
+                <option value="Can">Can</option>
+
+                <option value="Capsule">Capsule</option>
+                <option value="Bag">Bag</option>
               </select>
             </div>
 
@@ -473,6 +479,13 @@ while ($row = mysqli_fetch_assoc($product_types_result)) {
                   <option value="kg" <?php echo ($row['unit'] == 'kg') ? 'selected' : ''; ?>>kg</option>
                   <option value="g" <?php echo ($row['unit'] == 'g') ? 'selected' : ''; ?>>g</option>
                   <option value="l" <?php echo ($row['unit'] == 'l') ? 'selected' : ''; ?>>l</option>
+                  <option value="Tablet" <?php echo ($row['unit'] == 'Tablet') ? 'selected' : ''; ?>>Tablet</option>
+                  <option value="Box" <?php echo ($row['unit'] == 'Box') ? 'selected' : ''; ?>>Box</option>
+                  <option value="Bottle" <?php echo ($row['unit'] == 'Bottle') ? 'selected' : ''; ?>>Bottle</option>
+                  <option value="Can" <?php echo ($row['unit'] == 'Can') ? 'selected' : ''; ?>>Can</option>
+                  <option value="Capsule" <?php echo ($row['unit'] == 'Capsule') ? 'selected' : ''; ?>>Capsule</option>
+                  <option value="Bag" <?php echo ($row['unit'] == 'Bag') ? 'selected' : ''; ?>>Bag</option>
+                  
                 </select>
               </div>
               <div class="form-group">
