@@ -10,16 +10,6 @@ if (!isset($_SESSION['id'])) {
     exit;
 }
 
-$servername = "localhost";
-$username = "u920096089_vmscdb";
-$password = "Vmscdb2024";
-$dbname = "u920096089_vmscdb";
-
-$conn = new mysqli($servername, $username, $password, $dbname);
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
 
 
 $med_id = isset($_GET['Med_ID']) ? (int)$_GET['Med_ID'] : 0;
@@ -261,7 +251,9 @@ if ($med_id > 0) {
                                     <tbody>
                                         <?php
                                         $current_date = date('Y-m-d');
-                                        $product_query = "SELECT * FROM tblproducts WHERE ExpirationDate >= '$current_date' OR ExpirationDate IS NULL";
+                                        $product_query = "SELECT * FROM tblproducts 
+                                        JOIN tblinventory ON tblproducts.ProductID = tblinventory.ProductID
+                                        WHERE tblinventory.ExpirationDate >= '$current_date' OR tblinventory.ExpirationDate IS NULL";
                                         $product_result = mysqli_query($con, $product_query);
                                         $cnt = 1;
                                         while ($product = mysqli_fetch_array($product_result)) {

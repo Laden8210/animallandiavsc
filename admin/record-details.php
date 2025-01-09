@@ -5,195 +5,396 @@ ini_set('display_errors', 1);
 
 include('includes/dbconnection.php');
 
-if (!isset($_SESSION['id'])) {
+// Redirect to login if the user is not authenticated
+if (!isset($_SESSION['id']) || empty($_SESSION['id'])) {
     header("Location: index.php");
     exit;
 }
 
-$servername = "localhost";
-$username = "u920096089_vmscdb";
-$password = "Vmscdb2024";
-$dbname = "u920096089_vmscdb";
-
-$conn = new mysqli($servername, $username, $password, $dbname);
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+// Check for connection errors
+if ($con->connect_error) {
+    die("Connection failed: " . $con->connect_error);
 }
 
+// Retrieve and validate Med_ID from GET parameters
 $med_id = isset($_GET['Med_ID']) ? (int)$_GET['Med_ID'] : 0;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $med_id > 0) {
-    $client_check_query = "SELECT tblpet.client_id 
-                           FROM tblmedical_record 
-                           INNER JOIN tblpet ON tblmedical_record.pet_ID = tblpet.pet_ID
-                           WHERE tblmedical_record.Med_ID = '$med_id'";
-
-    $client_check_result = mysqli_query($con, $client_check_query);
-    $client_row = mysqli_fetch_assoc($client_check_result);
-    $client_id = $client_row['client_id'] ?? 0;
-
-    if ($client_id == 0) {
-        echo "<script>alert('Client not found for this medical record.');</script>";
-        exit;
-    }
-
-   
+if ($med_id <= 0) {
+    echo "<p>Invalid Medical Record ID.</p>";
+    exit;
 }
 
-if ($med_id > 0) {
-    
-    $sql = "SELECT tblmedical_record.*, 
-                   tblpet.pet_Name, 
-                   tblclients.Name, 
-                   tblappointment.Appointment_Date, 
-                   tblmedical_record.weight, 
-                   tblmedical_record.temp,
-                   tblmedical_record.diagnosis, 
-                   tblmedical_record.treatment, 
-                   tblmedical_record.notes,
-                   GROUP_CONCAT(DISTINCT tblservices.ServiceName) AS service_names,
-                   CONCAT(tblvet.vFirstname, ' ', tblvet.vLastname) AS vet_name,
-                   GROUP_CONCAT(DISTINCT tblpet.pet_Name) AS transaction_pets
-            FROM tblmedical_record
-            INNER JOIN tblpet ON tblmedical_record.pet_ID = tblpet.pet_ID
-            INNER JOIN tblclients ON tblpet.client_id = tblclients.client_id
-            LEFT JOIN tblappointment ON tblmedical_record.Appt_ID = tblappointment.Appt_ID
-            LEFT JOIN tblpet_services ON tblpet_services.pet_ID = tblpet.pet_ID
-            LEFT JOIN tblservices ON tblpet_services.service_id = tblservices.service_id
-            LEFT JOIN tblvet ON tblmedical_record.vet_ID = tblvet.vet_ID
-            LEFT JOIN tbltransaction ON tbltransaction.pet_ID = tblpet.pet_ID
-            WHERE tblmedical_record.Med_ID = $med_id
-            GROUP BY tblmedical_record.Med_ID";
+// Initialize variables for error and success messages
+$error = '';
+$success = '';
 
-    $result = $con->query($sql);
+// Handle form submission (if applicable)
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Example: Update diagnosis, treatment, etc.
+    // Implement form handling logic here
+    // ...
+}
+
+// Fetch medical record and related data securely using prepared statements
+$record_query = "SELECT 
+                    mr.*,
+                    p.pet_Name,
+                    p.Breed,
+                    p.Age,
+                    p.pGender,
+                    p.Species,
+                    p.Color,
+                    p.Birthdate,
+                    c.Name AS owner_name,
+                    c.ContactNumber AS owner_contact,
+                    c.Address AS owner_address,
+                    c.Email AS owner_email,
+                    a.Appointment_Date,
+                    GROUP_CONCAT(DISTINCT s.ServiceName SEPARATOR ', ') AS service_names,
+                    CONCAT(v.vFirstname, ' ', v.vLastname) AS vet_name
+                FROM tblmedical_record mr
+                INNER JOIN tblpet p ON mr.pet_ID = p.pet_ID
+                INNER JOIN tblclients c ON p.client_id = c.client_id
+                LEFT JOIN tblappointment a ON mr.Appt_ID = a.Appt_ID
+                LEFT JOIN tblpet_services ps ON p.pet_ID = ps.pet_ID
+                LEFT JOIN tblservices s ON ps.service_id = s.service_id
+                LEFT JOIN tblvet v ON mr.vet_ID = v.vet_ID
+                WHERE mr.Med_ID = ?
+                GROUP BY mr.Med_ID, p.pet_Name, c.Name, a.Appointment_Date, v.vFirstname, v.vLastname";
+
+if ($stmt = $con->prepare($record_query)) {
+    $stmt->bind_param("i", $med_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
     if ($result && $result->num_rows > 0) {
         $row = $result->fetch_assoc();
-        ?>
-        <!DOCTYPE html>
+    } else {
+        echo "<p>Record not found.</p>";
+        exit;
+    }
+    $stmt->close();
+} else {
+    die("Error preparing record query: " . $con->error);
+}
+
+// Fetch available services
+$services_result = $con->query("SELECT service_id, ServiceName, status FROM tblservices WHERE status != 'Not Available'");
+
+// Fetch available veterinarians
+$vets_result = $con->query("SELECT vet_ID, CONCAT(vFirstname, ' ', vLastname) AS vet_name FROM tblvet");
+?>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medical Record Details</title>
+    <title>Pet Medical Record</title>
     <style>
+        /* Page Setup */
+        @page {
+            size: A4;
+            margin: 15mm 15mm 15mm 15mm;
+        }
+
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
+            margin: 0;
             padding: 0;
+            background-color: #f8f9fa;
+            color: #212529;
         }
+
         .report-container {
-            max-width: 800px;
-            margin: auto;
-            border: 1px solid #ddd;
+            width: 100%;
+            height: 100%;
             padding: 20px;
-            border-radius: 10px;
+            box-sizing: border-box;
         }
-        .report-header {
+
+        h2 {
             text-align: center;
             margin-bottom: 20px;
+            font-size: 24px;
+            text-decoration: underline;
         }
-        .report-content {
-            margin-bottom: 20px;
+
+        h3 {
+            margin-top: 25px;
+            margin-bottom: 10px;
+            font-size: 18px;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 5px;
+            color: #343a40;
         }
+
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-bottom: 15px;
         }
-        th, td {
-            padding: 10px;
+
+        th,
+        td {
+            padding: 8px;
             text-align: left;
-            border: 1px solid #ddd;
+            border: 1px solid #dee2e6;
+            font-size: 14px;
         }
+
         th {
-            background-color: #f4f4f4;
+            background-color: #e9ecef;
+            color: #495057;
+            width: 30%;
         }
+
+        td {
+            width: 70%;
+        }
+
         .print-button {
             text-align: center;
+            margin-top: 20px;
         }
+
         .print-button button {
-            background-color: #4CAF50;
+            background-color: #007bff;
             color: white;
             padding: 10px 20px;
             border: none;
             cursor: pointer;
             font-size: 16px;
+            border-radius: 5px;
         }
+
         .print-button button:hover {
-            background-color: #45a049;
+            background-color: #0056b3;
         }
+
         @media print {
             .print-button {
                 display: none;
             }
         }
+
+        /* Alert Styles */
+        .alert {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
     </style>
 </head>
+
 <body>
     <div class="report-container">
-        <div class="report-header">
-            <img src="/public/admin/uploads/clinic-logo.jpg" alt="Clinic Logo" style="width: 110px; height: auto; margin-bottom: 5px;">
-        <h2 class="report-header">Medical Record Details</h2>
+        <h2>Pet Medical Record</h2>
+
+        <!-- Display Success or Error Messages -->
+        <?php if (!empty($success)) : ?>
+            <div class="alert alert-success" role="alert">
+                <?php echo $success; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (!empty($error)) : ?>
+            <div class="alert alert-danger" role="alert">
+                <?php echo $error; ?>
+            </div>
+        <?php endif; ?>
+
+        <!-- Pet Information -->
+        <h3>Pet Information</h3>
         <table>
             <tr>
-                <th>Field</th>
-                <th>Details</th>
-            </tr>
-            <tr>
-                <td>Medical Record ID</td>
-                <td><?php echo $row['Med_ID']; ?></td>
-            </tr>
-            <tr>
-                <td>Pet Name</td>
+                <th>Pet Name</th>
                 <td><?php echo $row['pet_Name']; ?></td>
             </tr>
             <tr>
-                <td>Owner Name</td>
-                <td><?php echo $row['Name']; ?></td>
+                <th>Breed</th>
+                <td><?php echo $row['Breed']; ?></td>
             </tr>
             <tr>
-                <td>Visit Date</td>
-                <td><?php echo $row['Appointment_Date']; ?></td>
+                <th>Age</th>
+                <td><?php echo $row['Age']; ?> years</td>
             </tr>
             <tr>
-                <td>Weight</td>
-                <td><?php echo $row['weight']; ?> kg</td>
+                <th>Gender</th>
+                <td><?php echo $row['pGender']; ?></td>
             </tr>
             <tr>
-                <td>Temperature</td>
-                <td><?php echo $row['temp']; ?> °C</td>
+                <th>Species</th>
+                <td><?php echo $row['Species']; ?></td>
             </tr>
             <tr>
-                <td>Diagnosis Result</td>
+                <th>Color</th>
+                <td><?php echo $row['Color']; ?></td>
+            </tr>
+            <tr>
+                <th>Birthdate</th>
+                <td><?php echo $row['Birthdate']; ?></td>
+            </tr>
+        </table>
+
+        <!-- Owner Information -->
+        <h3>Owner Information</h3>
+        <table>
+            <tr>
+                <th>Owner Name</th>
+                <td><?php echo $row['owner_name']; ?></td>
+            </tr>
+            <tr>
+                <th>Contact Number</th>
+                <td><?php echo $row['owner_contact']; ?></td>
+            </tr>
+            <tr>
+                <th>Address</th>
+                <td><?php echo $row['owner_address']; ?></td>
+            </tr>
+            <tr>
+                <th>Email</th>
+                <td><?php echo $row['owner_email']; ?></td>
+            </tr>
+        </table>
+
+        <!-- Medical History -->
+        <h3>Medical History</h3>
+        <table>
+            <tr>
+                <th>Date</th>
+                <td><?php
+                    // Format the Transaction_Date
+                    $transactionDate = new DateTime($row['created_at']);
+                    echo $transactionDate->format('F j, Y, g:i a');
+                    ?></td>
+            </tr>
+            <tr>
+                <th>Diagnosis</th>
                 <td><?php echo $row['diagnosis']; ?></td>
             </tr>
             <tr>
-                <td>Treatment</td>
+                <th>Treatment</th>
                 <td><?php echo $row['treatment']; ?></td>
             </tr>
             <tr>
-                <td>Notes</td>
+                <th>Notes</th>
                 <td><?php echo $row['notes']; ?></td>
             </tr>
             <tr>
-                <td>Services</td>
-                <td><?php echo $row['service_names']; ?></td>
+                <th>Weight</th>
+                <td><?php echo $row['weight']; ?> kg</td>
             </tr>
             <tr>
-                <td>Veterinarian</td>
+                <th>Temperature</th>
+                <td><?php echo $row['temp']; ?> °C</td>
+            </tr>
+            <tr>
+                <th>Veterinarian</th>
                 <td><?php echo $row['vet_name']; ?></td>
             </tr>
+            <tr>
+                <th>Services Provided</th>
+                <td><?php echo $row['service_names']; ?></td>
+            </tr>
         </table>
+
+        <!-- Appointment Information (if available) -->
+        <?php if (!empty($row['Appointment_Date'])) : ?>
+            <h3>Appointment Information</h3>
+            <table>
+                <tr>
+                    <th>Appointment Date</th>
+                    <td><?php
+                        // Format the Appointment_Date
+                        $appointmentDate = new DateTime($row['Appointment_Date']);
+                        echo $appointmentDate->format('F j, Y, g:i a');
+                        ?></td>
+                </tr>
+            </table>
+        <?php endif; ?>
+
+        <!-- Observation of Each Body System -->
+        <h3>Observation of Each Body System</h3>
+        <table>
+            <tr>
+                <th>Eyes</th>
+                <td><?php echo $row['eyes_observation']; ?></td>
+            </tr>
+            <tr>
+                <th>Ears</th>
+                <td><?php echo$row['ears_observation']; ?></td>
+            </tr>
+            <tr>
+                <th>Nose</th>
+                <td><?php echo $row['nose_observation']; ?></td>
+            </tr>
+            <tr>
+                <th>Mouth</th>
+                <td><?php echo $row['mouth_observation']; ?></td>
+            </tr>
+            <tr>
+                <th>Skin</th>
+                <td><?php echo $row['skin_observation']; ?></td>
+            </tr>
+            <tr>
+                <th>Musculoskeletal System</th>
+                <td><?php echo $row['musculoskeletal_observation']; ?></td>
+            </tr>
+        </table>
+
+        <!-- Surgery Record (if available) -->
+        <?php if (!empty($row['surgery_date'])) : ?>
+            <h3>Surgery Record</h3>
+            <table>
+                <tr>
+                    <th>Date</th>
+                    <td><?php
+                        // Format the Surgery Date
+                        $surgeryDate = new DateTime($row['surgery_date']);
+                        echo $surgeryDate->format('F j, Y');
+                        ?></td>
+                </tr>
+                <tr>
+                    <th>Procedures</th>
+                    <td><?php echo nl2br($row['surgery_procedures']); ?></td>
+                </tr>
+                <tr>
+                    <th>Complications</th>
+                    <td><?php echo nl2br($row['surgery_complications']); ?></td>
+                </tr>
+                <tr>
+                    <th>Anesthesia Type</th>
+                    <td><?php echo $row['anesthesia_type']; ?></td>
+                </tr>
+                <tr>
+                    <th>Surgeon</th>
+                    <td><?php echo $row['surgeon_name']; ?></td>
+                </tr>
+            </table>
+        <?php endif; ?>
+
+        <!-- Print Button -->
         <div class="print-button">
             <button onclick="window.print();">Print</button>
         </div>
     </div>
 </body>
+
 </html>
-        <?php
-    } else {
-        echo "<p>Record not found.</p>";
-    }
-}
+
+<?php
+$con->close();
 ?>

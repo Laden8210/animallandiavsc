@@ -1,115 +1,143 @@
 <?php
-
+session_start();
 ini_set('display_errors', 1);
+error_reporting(E_ALL);
 
 include('includes/dbconnection.php');
 
-if (strlen($_SESSION['id']) == 0) {
+if (empty($_SESSION['id'])) {
     header('location:logout.php');
     exit();
 }
 
-$appointment_query = "SELECT Appt_ID, client_id FROM tblappointment WHERE Status=''";
+// Appointment Query
+$appointment_query = "SELECT Appt_ID, client_id FROM tblappointment WHERE Status = ''";
 $appointment_result = mysqli_query($con, $appointment_query);
+if (!$appointment_result) {
+    die("Error fetching appointments: " . mysqli_error($con));
+}
 $appointment_count = mysqli_num_rows($appointment_result);
 
-$low_stock_query = "SELECT ProductName, Quantity FROM tblproducts 
-LEFT JOIN tblinventory ON tblproducts.ProductID = tblinventory.ProductID 
-WHERE Quantity <= 5";
+// Low Stock Query
+$low_stock_query = "
+    SELECT tblproducts.ProductName, tblinventory.Quantity 
+    FROM tblproducts 
+    LEFT JOIN tblinventory ON tblproducts.ProductID = tblinventory.ProductID 
+    WHERE tblinventory.Quantity <= 5";
 $low_stock_result = mysqli_query($con, $low_stock_query);
-$low_stock_products = [];
-while ($row = mysqli_fetch_assoc($low_stock_result)) {
-    $low_stock_products[] = $row;
+if (!$low_stock_result) {
+    die("Error fetching low stock: " . mysqli_error($con));
 }
+$low_stock_products = mysqli_fetch_all($low_stock_result, MYSQLI_ASSOC);
 
-// $expiring_soon_query = "SELECT ProductName, ExpirationDate FROM tblproducts 
-// WHERE ExpirationDate IS NOT NULL AND DATEDIFF(ExpirationDate, NOW()) <= 7";
-// $expiring_soon_result = mysqli_query($con, $expiring_soon_query);
-// $expiring_soon_products = [];
-// while ($row = mysqli_fetch_assoc($expiring_soon_result)) {
-//     $expiring_soon_products[] = $row;
-// }
+// Expiring Soon Query
+$expiring_soon_query = "
+    SELECT tblproducts.ProductName, tblinventory.ExpirationDate 
+    FROM tblproducts 
+    LEFT JOIN tblinventory ON tblproducts.ProductID = tblinventory.ProductID 
+    WHERE tblinventory.ExpirationDate IS NOT NULL 
+    AND DATEDIFF(tblinventory.ExpirationDate, NOW()) <= 7";
+$expiring_soon_result = mysqli_query($con, $expiring_soon_query);
+if (!$expiring_soon_result) {
+    die("Error fetching expiring products: " . mysqli_error($con));
+}
+$expiring_soon_products = mysqli_fetch_all($expiring_soon_result, MYSQLI_ASSOC);
 
-// echo "<script>
-//     var lowStockProducts = " . json_encode($low_stock_products) . ";
-//     var expiringSoonProducts = " . json_encode($expiring_soon_products) . ";
-// </script>";
+// Expired Products Query
+$expired_query = "
+    SELECT tblproducts.ProductName, tblinventory.ExpirationDate 
+    FROM tblproducts 
+    LEFT JOIN tblinventory ON tblproducts.ProductID = tblinventory.ProductID 
+    WHERE tblinventory.ExpirationDate IS NOT NULL 
+    AND tblinventory.ExpirationDate < NOW()";
+$expired_result = mysqli_query($con, $expired_query);
+if (!$expired_result) {
+    die("Error fetching expired products: " . mysqli_error($con));
+}
+$expired_products = mysqli_fetch_all($expired_result, MYSQLI_ASSOC);
 
-// $expired_query = "SELECT ProductName, ExpirationDate FROM tblproducts 
-// WHERE ExpirationDate IS NOT NULL AND ExpirationDate < NOW()";
-// $expired_result = mysqli_query($con, $expired_query);
-// $expired_products = [];
-// while ($row = mysqli_fetch_assoc($expired_result)) {
-//     $expired_products[] = $row;
-// }
-
+// Pass Data to JavaScript
 echo "<script>
-    var expiredProducts = " . json_encode($expired_products) . ";
+    const lowStockProducts = " . json_encode($low_stock_products) . ";
+    const expiringSoonProducts = " . json_encode($expiring_soon_products) . ";
+    const expiredProducts = " . json_encode($expired_products) . ";
 </script>";
-
 ?>
+
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Your Page Title</title>
     <link rel="icon" type="image/x-icon" href="uploads/clinic-logo.ico" />
-    
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
     <style>
-      .power-icon, .nav_icon, .notification-icon {
+        .power-icon,
+        .nav_icon,
+        .notification-icon {
             color: black;
-            font-size: 19px; 
+            font-size: 19px;
         }
+
         .profile_img {
             position: relative;
         }
+
         .calendar-wrapper {
-            display: flex; 
-            justify-content: flex-end; 
+            display: flex;
+            justify-content: flex-end;
             width: 100%;
         }
+
         #calendar {
             max-width: 950px;
             width: 100%;
         }
+
         .user-name {
             color: black;
             font-size: 20px;
             font-weight: bold;
         }
+
         .sticky-header {
             display: flex;
-            justify-content: space-between; 
+            justify-content: space-between;
             align-items: center;
             padding: 10px;
             background-color: #ddd;
         }
+
         .header-left {
             flex: 1;
         }
+
         .profile_details {
             display: flex;
             align-items: center;
-            gap: 15px; 
+            gap: 15px;
         }
+
         .nofitications-dropdown {
             list-style: none;
             margin: 0;
             padding: 0;
             position: relative;
         }
+
         .dropdown-menu {
             position: absolute;
-            top: 120%;     
-            right: 10px;   
+            top: 120%;
+            right: 10px;
             z-index: 1000;
             display: none;
             min-width: 200px;
-            max-width: 250px; 
-            padding: 10px 15px; 
+            max-width: 250px;
+            padding: 10px 15px;
             margin: 2px 0 0;
             font-size: 14px;
             text-align: left;
@@ -119,14 +147,17 @@ echo "<script>
             border-radius: 4px;
             box-shadow: 0 6px 12px rgba(0, 0, 0, .175);
         }
+
         .dropdown-menu.show {
             display: block;
         }
+
         .notification-icon {
             color: black;
             position: relative;
             cursor: pointer;
         }
+
         .notification-icon .badge {
             background-color: red;
             color: white;
@@ -137,6 +168,7 @@ echo "<script>
             top: -5px;
             right: -10px;
         }
+
         .notification-bell {
             position: relative;
             cursor: pointer;
@@ -190,6 +222,7 @@ echo "<script>
         }
     </style>
 </head>
+
 <body>
     <div class="sticky-header header-section">
         <div class="header-left">
@@ -222,53 +255,54 @@ echo "<script>
     </div>
 
     <script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const notificationBell = document.querySelector('.notification-bell');
-        const notificationCount = document.getElementById('notification-count');
-        const notificationList = document.getElementById('notification-list');
-        const notificationDropdown = document.getElementById('notification-dropdown');
+        document.addEventListener("DOMContentLoaded", function() {
+            const notificationBell = document.querySelector('.notification-bell');
+            const notificationCount = document.getElementById('notification-count');
+            const notificationList = document.getElementById('notification-list');
+            const notificationDropdown = document.getElementById('notification-dropdown');
 
-        let notifications = [];
+            let notifications = [];
 
-        const appointmentCount = <?php echo $appointment_count; ?>;
-        if (appointmentCount > 0) {
-            notifications.push(`You have ${appointmentCount} new appointment notification(s).`);
-        }
-
-        lowStockProducts.forEach(product => {
-            notifications.push(`Low Stock: ${product.ProductName} (${product.Quantity} left)`);
-        });
-
-        expiringSoonProducts.forEach(product => {
-            notifications.push(`Expiring Soon: ${product.ProductName} (Expires on ${product.ExpirationDate})`);
-        });
-
-        expiredProducts.forEach(product => {
-            notifications.push(`Expired: ${product.ProductName} (Expired on ${product.ExpirationDate})`);
-        });
-
-        if (notifications.length > 0) {
-            notificationCount.textContent = notifications.length;
-            notificationCount.style.display = 'block';
-
-            notifications.forEach(notification => {
-                const listItem = document.createElement('li');
-                listItem.textContent = notification;
-                notificationList.appendChild(listItem);
-            });
-        }
-
-        notificationBell.addEventListener('click', () => {
-            notificationDropdown.classList.toggle('show');
-        });
-
-        document.addEventListener('click', (event) => {
-            if (!notificationBell.contains(event.target) && !notificationDropdown.contains(event.target)) {
-                notificationDropdown.classList.remove('show');
+            const appointmentCount = <?php echo $appointment_count; ?>;
+            if (appointmentCount > 0) {
+                notifications.push(`You have ${appointmentCount} new appointment notification(s).`);
             }
+
+            lowStockProducts.forEach(product => {
+                notifications.push(`Low Stock: ${product.ProductName} (${product.Quantity} left)`);
+            });
+
+            expiringSoonProducts.forEach(product => {
+                notifications.push(`Expiring Soon: ${product.ProductName} (Expires on ${product.ExpirationDate})`);
+            });
+
+            expiredProducts.forEach(product => {
+                notifications.push(`Expired: ${product.ProductName} (Expired on ${product.ExpirationDate})`);
+            });
+
+            if (notifications.length > 0) {
+                notificationCount.textContent = notifications.length;
+                notificationCount.style.display = 'block';
+
+                notifications.forEach(notification => {
+                    const listItem = document.createElement('li');
+                    listItem.textContent = notification;
+                    notificationList.appendChild(listItem);
+                });
+            }
+
+            notificationBell.addEventListener('click', () => {
+                notificationDropdown.classList.toggle('show');
+            });
+
+            document.addEventListener('click', (event) => {
+                if (!notificationBell.contains(event.target) && !notificationDropdown.contains(event.target)) {
+                    notificationDropdown.classList.remove('show');
+                }
+            });
         });
-    });
-</script>
+    </script>
 
 </body>
+
 </html>

@@ -1,62 +1,89 @@
-[<?php
+<?php
 session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-
+date_default_timezone_set('Asia/Manila'); // Set timezone to Manila
 include('includes/dbconnection.php');
 
-
-if (empty($_SESSION['id'])) {
+// Redirect to logout if user is not authenticated
+if (!isset($_SESSION['id']) || strlen($_SESSION['id']) == 0) {
     header('location:logout.php');
     exit();
 }
 
 if (isset($_POST['submit'])) {
 
-    $uid = isset($_GET['addid']) ? intval($_GET['addid']) : 0;
+    // Collect form data
+    $name = isset($_POST['Name']) ? trim($_POST['Name']) : '';
+    $address = isset($_POST['Address']) ? trim($_POST['Address']) : '';
+    $email = isset($_POST['Email']) ? trim($_POST['Email']) : '';
+    $contactNumber = isset($_POST['ContactNumber']) ? trim($_POST['ContactNumber']) : '';
+    $gender = isset($_POST['gender']) ? trim($_POST['gender']) : '';
+    $username = isset($_POST['username']) ? trim($_POST['username']) : '';
+    $password = isset($_POST['password']) ? trim($_POST['password']) : '';
 
-    if ($uid > 0) {
+    // Validate required fields
+    if (empty($name) || empty($email) || empty($username) || empty($password)) {
+        $error = 'Please fill in all required fields.';
+    } else {
+        // Proceed with inserting client and transaction
+        mysqli_begin_transaction($con);
+        try {
+            // Insert new client
+            $insertClientQuery = "INSERT INTO tblclients (Name, Address, Email, ContactNumber, gender, username, password, CreationDate, UpdationDate) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())";
+            if ($stmt_client = $con->prepare($insertClientQuery)) {
+                // Hash the password before storing
+                $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+                $stmt_client->bind_param("sssssss", $name, $address, $email, $contactNumber, $gender, $username, $hashedPassword);
+                if (!$stmt_client->execute()) {
+                    throw new Exception('Error inserting client: ' . $stmt_client->error);
+                }
+                // Get the inserted client_id
+                $clientID = $stmt_client->insert_id;
+                $stmt_client->close();
+            } else {
+                throw new Exception('Error preparing client insert: ' . $con->error);
+            }
 
-        $transid = 'TRX' . mt_rand(100000000, 999999999);
+            // Generate a unique transaction code
+            $transid = 'TRX' . mt_rand(100000000, 999999999);
 
+            // Collect selected services and products
+            $sids = $_POST['sids'] ?? [];
+            $pids = $_POST['pids'] ?? [];
+            $quantities = $_POST['quantities'] ?? [];
 
-        $sids = $_POST['sids'] ?? [];
-        $pids = $_POST['pids'] ?? [];
-        $quantities = $_POST['quantities'] ?? [];
-
-
-        $groupedProducts = [];
-        foreach ($pids as $pvid) {
-            if (isset($quantities[$pvid])) {
-                $qty = intval($quantities[$pvid]);
-                if ($qty > 0) {
-                    if (isset($groupedProducts[$pvid])) {
-                        $groupedProducts[$pvid] += $qty;
-                    } else {
-                        $groupedProducts[$pvid] = $qty;
+            // Group products by ProductID and sum their quantities
+            $groupedProducts = [];
+            foreach ($pids as $pvid) {
+                if (isset($quantities[$pvid])) {
+                    $qty = intval($quantities[$pvid]);
+                    if ($qty > 0) {
+                        if (isset($groupedProducts[$pvid])) {
+                            $groupedProducts[$pvid] += $qty;
+                        } else {
+                            $groupedProducts[$pvid] = $qty;
+                        }
                     }
                 }
             }
-        }
 
+            // Prepare transactions array
+            $transactions = [];
+            foreach ($sids as $svid) {
+                $transactions[] = ['type' => 'service', 'id' => $svid];
+            }
+            foreach ($groupedProducts as $pvid => $qty) {
+                $transactions[] = ['type' => 'product', 'id' => $pvid, 'Qty' => $qty];
+            }
 
-        $transactions = [];
-        foreach ($sids as $svid) {
-            $transactions[] = ['type' => 'service', 'id' => $svid];
-        }
-        foreach ($groupedProducts as $pvid => $qty) {
-            $transactions[] = ['type' => 'product', 'id' => $pvid, 'Qty' => $qty];
-        }
-
-        mysqli_begin_transaction($con);
-        try {
-
+            // Validate all products for stock
             foreach ($transactions as $transaction) {
                 if ($transaction['type'] === 'product') {
                     $id = intval($transaction['id']);
                     $qty = intval($transaction['Qty']);
 
-  
+                    // Fetch total available quantity for the product
                     $inventoryQuery = "SELECT SUM(Quantity) as TotalQuantity FROM tblinventory WHERE ProductID = ? AND (ExpirationDate >= CURDATE() OR ExpirationDate IS NULL)";
                     if ($stmt_inv = $con->prepare($inventoryQuery)) {
                         $stmt_inv->bind_param("i", $id);
@@ -76,20 +103,18 @@ if (isset($_POST['submit'])) {
                 }
             }
 
- 
+            // Proceed with inserting transactions
             foreach ($transactions as $transaction) {
                 $type = $transaction['type'];
                 $id = intval($transaction['id']);
                 $qty = ($type === 'product') ? intval($transaction['Qty']) : 1;
                 $column = ($type === 'service') ? 'service_id' : 'ProductID';
-                $status = 'pending';
+                $status = 'pending'; // Default status, adjust as needed
 
-
+                // Insert into tbltransaction
                 $query = "INSERT INTO tbltransaction (client_id, $column, Trans_Code, Qty, status, Transaction_Date) VALUES (?, ?, ?, ?, ?, NOW())";
                 if ($stmt = $con->prepare($query)) {
-                    $stmt->bind_param("isssd", $uid, $id, $transid, $qty, $status);
-
-                    echo $transid;
+                    $stmt->bind_param("isssd", $clientID, $id, $transid, $qty, $status);
 
                     if (!$stmt->execute()) {
                         throw new Exception('Error inserting transaction: ' . $stmt->error);
@@ -99,9 +124,9 @@ if (isset($_POST['submit'])) {
                     throw new Exception('Error preparing transaction insert: ' . $con->error);
                 }
 
-    
+                // For products, update inventory
                 if ($type === 'product') {
-       
+                    // Fetch inventory entries ordered by ExpirationDate ASC
                     $inventoryFetchQuery = "SELECT InventoryID, Quantity FROM tblinventory WHERE ProductID = ? AND (ExpirationDate >= CURDATE() OR ExpirationDate IS NULL) ORDER BY ExpirationDate ASC";
                     if ($stmt_fetch = $con->prepare($inventoryFetchQuery)) {
                         $stmt_fetch->bind_param("i", $id);
@@ -128,7 +153,7 @@ if (isset($_POST['submit'])) {
                                     throw new Exception('Error preparing inventory update: ' . $con->error);
                                 }
                             } else {
-               
+                                // Deduct entire availableQty and continue
                                 $updateInventoryQuery = "UPDATE tblinventory SET Quantity = 0 WHERE InventoryID = ?";
                                 if ($stmt_upd = $con->prepare($updateInventoryQuery)) {
                                     $stmt_upd->bind_param("i", $inventoryId);
@@ -156,73 +181,51 @@ if (isset($_POST['submit'])) {
 
             // Commit the transaction
             mysqli_commit($con);
-            echo '<div class="alert alert-success alert-dismissible fade show" role="alert">
-                    Transaction created successfully. Transaction number is <strong>' . htmlspecialchars($transid, ENT_QUOTES, 'UTF-8') . '</strong>.
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                  </div>';
-             echo "<script>setTimeout(() => { window.location.href = 'transaction.php'; }, 3000);</script>";
+            $success = 'Transaction created successfully. Transaction number is <strong>' . htmlspecialchars($transid, ENT_QUOTES, 'UTF-8') . '</strong>. Redirecting to Transaction History...';
+            // Redirect after 3 seconds
+            echo "<script>setTimeout(() => { window.location.href = 'transaction.php'; }, 3000);</script>";
         } catch (Exception $e) {
-    
+            // Rollback the transaction on error
             mysqli_rollback($con);
-            echo '<div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') . '
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                  </div>';
+            $error = $e->getMessage();
+        }
+    }
+}
+    // Fetch available products
+    $products = [];
+    $productQuery = "SELECT p.ProductID, p.ProductName, p.ProductCode, p.price, 
+                    SUM(i.Quantity) AS TotalQuantity, 
+                    MIN(i.ExpirationDate) AS EarliestExpiration
+                    FROM tblproducts p
+                    LEFT JOIN tblinventory i ON p.ProductID = i.ProductID
+                    GROUP BY p.ProductID, p.ProductName, p.ProductCode, p.price";
+    $productResult = mysqli_query($con, $productQuery);
+    if ($productResult) {
+        while ($row = mysqli_fetch_assoc($productResult)) {
+            $products[] = [
+                'ProductID' => $row['ProductID'],
+                'ProductName' => $row['ProductName'],
+                'ProductCode' => $row['ProductCode'],
+                'price' => $row['price'],
+                'TotalQuantity' => $row['TotalQuantity'] ?? 0,
+                'EarliestExpiration' => $row['EarliestExpiration'] ? htmlspecialchars($row['EarliestExpiration'], ENT_QUOTES, 'UTF-8') : 'No Expiration'
+            ];
         }
     } else {
-        echo '<div class="alert alert-danger alert-dismissible fade show" role="alert">
-                Error: Invalid request. User ID not found.
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-              </div>';
+        $error = 'Error fetching products: ' . mysqli_error($con);
     }
-}
 
-
-$products = [];
-$services = [];
-
-
-$productQuery = "SELECT p.ProductID, p.ProductName, p.ProductCode, p.price, 
-                SUM(i.Quantity) AS TotalQuantity, 
-                MIN(i.ExpirationDate) AS EarliestExpiration
-                FROM tblproducts p
-                LEFT JOIN tblinventory i ON p.ProductID = i.ProductID
-                GROUP BY p.ProductID, p.ProductName, p.ProductCode, p.price";
-$productResult = mysqli_query($con, $productQuery);
-if ($productResult) {
-    while ($row = mysqli_fetch_assoc($productResult)) {
-        $products[] = [
-            'ProductID' => $row['ProductID'],
-            'ProductName' => $row['ProductName'],
-            'ProductCode' => $row['ProductCode'],
-            'price' => $row['price'],
-            'TotalQuantity' => $row['TotalQuantity'] ?? 0,
-            'EarliestExpiration' => $row['EarliestExpiration'] ? htmlspecialchars($row['EarliestExpiration'], ENT_QUOTES, 'UTF-8') : 'No Expiration'
-        ];
+    // Fetch available services
+    $services = [];
+    $serviceResult = mysqli_query($con, "SELECT service_id, ServiceName, Cost FROM tblservices WHERE status != 'Not Available'");
+    if ($serviceResult) {
+        while ($row = mysqli_fetch_assoc($serviceResult)) {
+            $services[] = $row;
+        }
+    } else {
+        $error = 'Error fetching services: ' . mysqli_error($con);
     }
-} else {
-    echo '<div class="alert alert-danger alert-dismissible fade show" role="alert">
-            Error fetching products: ' . htmlspecialchars(mysqli_error($con), ENT_QUOTES, 'UTF-8') . '
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>';
-}
-
-
-$serviceResult = mysqli_query($con, "SELECT service_id, ServiceName, Cost FROM tblservices WHERE status != 'Not Available'");
-if ($serviceResult) {
-    while ($row = mysqli_fetch_assoc($serviceResult)) {
-        $services[] = $row;
-    }
-} else {
-    echo '<div class="alert alert-danger alert-dismissible fade show" role="alert">
-            Error fetching services: ' . htmlspecialchars(mysqli_error($con), ENT_QUOTES, 'UTF-8') . '
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>';
-}
-
-
 ?>
-
 <!DOCTYPE HTML>
 <html lang="en">
 
@@ -230,76 +233,18 @@ if ($serviceResult) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ALVSC || Add Transaction</title>
-    <!-- CSS Links -->
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <!-- Custom CSS -->
     <link href="css/style.css" rel='stylesheet' type='text/css' />
     <link href="css/font-awesome.css" rel="stylesheet">
+    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@200..700&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap" rel="stylesheet"
         type='text/css'>
+    <!-- Animate CSS -->
     <link href="css/animate.css" rel="stylesheet" type="text/css" media="all">
     <link href="css/custom.css" rel="stylesheet">
-
-    <!-- JavaScript Links -->
-    <script src="https://code.jquery.com/jquery-3.7.1.js"
-        integrity="sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4=" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous">
-    </script>
-    <script src="js/modernizr.custom.js"></script>
-    <script src="js/wow.min.js"></script>
-    <script src="js/metisMenu.min.js"></script>
-    <script src="js/custom.js"></script>
-
-    <style>
-        body {
-            background-color: #f4f7fa;
-            font-family: 'Roboto Flex', sans-serif;
-        }
-
-        .main-content {
-            padding: 20px;
-        }
-
-        .tables h4 {
-            margin-bottom: 20px;
-        }
-
-        .form-section {
-            margin-bottom: 30px;
-        }
-
-        .table th,
-        .table td {
-            vertical-align: middle !important;
-        }
-
-        /* Additional Styles */
-        .badge-custom {
-            background-color: #17a2b8;
-            color: white;
-            border-radius: 5px;
-            padding: 5px 10px;
-            margin-right: 5px;
-            margin-bottom: 5px;
-            display: inline-block;
-        }
-
-        .alert-custom {
-            margin-top: 20px;
-        }
-
-        /* Disable number input spinner */
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
-        }
-
-        input[type=number] {
-            -moz-appearance: textfield;
-        }
-    </style>
 </head>
 
 <body class="cbp-spmenu-push">
@@ -309,13 +254,66 @@ if ($serviceResult) {
         <div id="page-wrapper">
             <div class="main-page">
                 <div class="tables">
-                    <!-- Display Alerts -->
+                    <!-- Display Success or Error Messages -->
                     <?php
-                    // Alerts are already handled in PHP backend
+                    if (isset($success)) {
+                        echo '<div class="alert alert-success alert-dismissible fade show" role="alert">
+                                ' . $success . '
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                              </div>';
+                    }
+
+                    if (isset($error)) {
+                        echo '<div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                ' . htmlspecialchars($error, ENT_QUOTES, 'UTF-8') . '
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                              </div>';
+                    }
                     ?>
 
                     <h4>Add Transaction:</h4>
                     <form method="post">
+                        <!-- Client Information Section -->
+                        <div class="form-section">
+                            <h5>Client Information</h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="Name" class="form-label">Name<span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="Name" name="Name" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="Address" class="form-label">Address</label>
+                                    <input type="text" class="form-control" id="Address" name="Address">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="Email" class="form-label">Email<span class="text-danger">*</span></label>
+                                    <input type="email" class="form-control" id="Email" name="Email" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="ContactNumber" class="form-label">Contact Number</label>
+                                    <input type="text" class="form-control" id="ContactNumber" name="ContactNumber">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="gender" class="form-label">Gender</label>
+                                    <select class="form-select" id="gender" name="gender">
+                                        <option value="">Select Gender</option>
+                                        <option value="Male">Male</option>
+                                        <option value="Female">Female</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="username" class="form-label">Username<span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="username" name="username" required>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="password" class="form-label">Password<span class="text-danger">*</span></label>
+                                    <input type="password" class="form-control" id="password" name="password" required>
+                                    <small class="form-text text-muted">Use at least 8 characters.</small>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Products Section -->
                         <div class="form-section">
                             <h5>Products</h5>
@@ -420,29 +418,34 @@ if ($serviceResult) {
         </div>
     </div>
 
-    <!-- Optional JavaScript for Enhancements -->
-    <script>
-        $(document).ready(function () {
-            // Enable/Disable quantity input based on product selection
-            $('.product-checkbox').change(function () {
-                var checkbox = $(this);
-                var quantityInput = checkbox.closest('tr').find('.product-quantity');
-                var outOfStockInput = checkbox.closest('tr').find('input[type="text"]');
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous"></script>
 
-                if (checkbox.is(':checked')) {
-                    quantityInput.prop('disabled', false);
-                    quantityInput.focus();
-                    outOfStockInput.val('');
-                } else {
-                    quantityInput.prop('disabled', true);
-                    quantityInput.val('');
-                }
+    <!-- Custom JavaScript for Enhancements -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Handle product checkbox change to enable/disable quantity input
+            const productCheckboxes = document.querySelectorAll('.product-checkbox');
+            productCheckboxes.forEach(function (checkbox) {
+                checkbox.addEventListener('change', function () {
+                    const quantityInput = this.closest('tr').querySelector('.product-quantity');
+                    if (this.checked) {
+                        quantityInput.disabled = false;
+                        quantityInput.focus();
+                    } else {
+                        quantityInput.disabled = true;
+                        quantityInput.value = '';
+                    }
+                });
             });
 
             // Form validation before submission
-            $('form').on('submit', function (e) {
-                var selectedProducts = $('input[name="pids[]"]:checked').length;
-                var selectedServices = $('input[name="sids[]"]:checked').length;
+            const form = document.querySelector('form');
+            form.addEventListener('submit', function (e) {
+                const selectedProducts = document.querySelectorAll('input[name="pids[]"]:checked').length;
+                const selectedServices = document.querySelectorAll('input[name="sids[]"]:checked').length;
 
                 if (selectedProducts === 0 && selectedServices === 0) {
                     alert('Please select at least one product or service.');
@@ -451,19 +454,20 @@ if ($serviceResult) {
                 }
 
                 // Validate quantities for selected products
-                var valid = true;
-                $('input[name="pids[]"]:checked').each(function () {
-                    var productId = $(this).val();
-                    var quantity = $('input[name="quantities[' + productId + ']"]').val();
-                    var maxQty = $('input[name="quantities[' + productId + ']"]').attr('max');
+                let valid = true;
+                document.querySelectorAll('input[name="pids[]"]:checked').forEach(function (checkbox) {
+                    const productId = checkbox.value;
+                    const quantityInput = document.querySelector(`input[name="quantities[${productId}]"]`);
+                    const quantity = parseInt(quantityInput.value, 10);
+                    const maxQty = parseInt(quantityInput.getAttribute('max'), 10);
 
-                    if (!quantity || quantity < 1) {
+                    if (isNaN(quantity) || quantity < 1) {
                         alert('Please enter a valid quantity for selected products.');
                         valid = false;
                         return false;
                     }
 
-                    if (parseInt(quantity) > parseInt(maxQty)) {
+                    if (quantity > maxQty) {
                         alert('Entered quantity for a product exceeds available stock.');
                         valid = false;
                         return false;
@@ -479,4 +483,3 @@ if ($serviceResult) {
 </body>
 
 </html>
-]

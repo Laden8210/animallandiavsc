@@ -5,6 +5,7 @@ ini_set('display_errors', 1);
 
 include('includes/dbconnection.php');
 
+// Redirect to logout if the user is not authenticated
 if (strlen($_SESSION['id']) == 0) {
     header('location:logout.php');
     exit();
@@ -19,11 +20,21 @@ if (isset($_POST['addAppointment'])) {
             $client_id = mysqli_real_escape_string($con, $_POST['client_id']);
         } else {
             $Name = mysqli_real_escape_string($con, $_POST['Name']);
-            $clientQuery = "INSERT INTO tblclients (Name) VALUES ('$Name')";
-            if (!mysqli_query($con, $clientQuery)) {
-                throw new Exception('Error inserting client: ' . mysqli_error($con));
+            // Basic validation for Name
+            if (empty($Name)) {
+                throw new Exception('Client name is required.');
             }
-            $client_id = mysqli_insert_id($con);
+            $clientQuery = "INSERT INTO tblclients (Name) VALUES (?)";
+            if ($stmt_client = $con->prepare($clientQuery)) {
+                $stmt_client->bind_param("s", $Name);
+                if (!$stmt_client->execute()) {
+                    throw new Exception('Error inserting client: ' . $stmt_client->error);
+                }
+                $client_id = $stmt_client->insert_id;
+                $stmt_client->close();
+            } else {
+                throw new Exception('Error preparing client insert statement: ' . $con->error);
+            }
         }
 
         // Handle Appointment Date and Time
@@ -38,44 +49,83 @@ if (isset($_POST['addAppointment'])) {
         $petNames = $_POST['pname'];
         $breeds = $_POST['Breed'];
         $pGenders = $_POST['pGender'];
+        $ages = $_POST['Age'];
+        $species = $_POST['Species'];
+        $birthdates = $_POST['Birthdate'];
+        $colors = $_POST['Color'];
         $serviceGroups = $_POST['service_id'];
 
         foreach ($petNames as $index => $petName) {
+            // Validate pet name
+            if (empty($petName)) {
+                throw new Exception('Pet name is required.');
+            }
+
             $petName = mysqli_real_escape_string($con, $petName);
             $breed = mysqli_real_escape_string($con, $breeds[$index]);
             $petGender = mysqli_real_escape_string($con, $pGenders[$index]);
+            $age = mysqli_real_escape_string($con, $ages[$index]);
+            $specie = mysqli_real_escape_string($con, $species[$index]);
+            $birthdate = mysqli_real_escape_string($con, $birthdates[$index]);
+            $color = mysqli_real_escape_string($con, $colors[$index]);
 
-            // Insert Pet
-            $petQuery = "INSERT INTO tblpet (pet_Name, Breed, pGender, client_id) 
-                         VALUES ('$petName', '$breed', '$petGender', '$client_id')";
-            if (!mysqli_query($con, $petQuery)) {
-                throw new Exception('Error inserting pet: ' . mysqli_error($con));
+            // Insert Pet with additional information
+            $petQuery = "INSERT INTO tblpet (pet_Name, Breed, pGender, Age, Species, Birthdate, Color, client_id) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            if ($stmt_pet = $con->prepare($petQuery)) {
+                $stmt_pet->bind_param("sssisssi", $petName, $breed, $petGender, $age, $specie, $birthdate, $color, $client_id);
+                if (!$stmt_pet->execute()) {
+                    throw new Exception('Error inserting pet: ' . $stmt_pet->error);
+                }
+                $pet_id = $stmt_pet->insert_id;
+                $stmt_pet->close();
+            } else {
+                throw new Exception('Error preparing pet insert statement: ' . $con->error);
             }
-            $pet_id = mysqli_insert_id($con);
 
             // Insert Appointment
             $appointmentQuery = "INSERT INTO tblappointment (client_id, pet_ID, Appointment_Date, Appointment_Time, Status) 
-                                 VALUES ('$client_id', '$pet_id', '$appointmentDate', '$appointmentTime', '0')";
-            if (!mysqli_query($con, $appointmentQuery)) {
-                throw new Exception('Error inserting appointment: ' . mysqli_error($con));
+                                 VALUES (?, ?, ?, ?, '0')";
+            if ($stmt_appt = $con->prepare($appointmentQuery)) {
+                $stmt_appt->bind_param("iiss", $client_id, $pet_id, $appointmentDate, $appointmentTime);
+                if (!$stmt_appt->execute()) {
+                    throw new Exception('Error inserting appointment: ' . $stmt_appt->error);
+                }
+                $Appt_ID = $stmt_appt->insert_id;
+                $stmt_appt->close();
+            } else {
+                throw new Exception('Error preparing appointment insert statement: ' . $con->error);
             }
-            $Appt_ID = mysqli_insert_id($con);
 
             // Insert Services for Pet
             if (isset($serviceGroups[$index]) && is_array($serviceGroups[$index])) {
                 foreach ($serviceGroups[$index] as $service_id) {
                     $service_id = mysqli_real_escape_string($con, $service_id);
+                    
+                    // Insert into tblpet_services
                     $insertService = "INSERT INTO tblpet_services (Appt_ID, pet_ID, service_id) 
-                                      VALUES ('$Appt_ID', '$pet_id', '$service_id')";
-                    if (!mysqli_query($con, $insertService)) {
-                        throw new Exception('Error inserting appointment service: ' . mysqli_error($con));
+                                      VALUES (?, ?, ?)";
+                    if ($stmt_service = $con->prepare($insertService)) {
+                        $stmt_service->bind_param("iii", $Appt_ID, $pet_id, $service_id);
+                        if (!$stmt_service->execute()) {
+                            throw new Exception('Error inserting appointment service: ' . $stmt_service->error);
+                        }
+                        $stmt_service->close();
+                    } else {
+                        throw new Exception('Error preparing pet_service insert statement: ' . $con->error);
                     }
 
                     // Insert Medical Record
-                    $medicalRecordQuery = "INSERT INTO tblmedical_record (client_id, service_id, Appt_ID, pet_ID, diagnosis, treatment, notes, date_of_report, weight, temp, vet_ID) 
-                                           VALUES ('$client_id', '$service_id', '$Appt_ID', '$pet_id', '', '', '', CURDATE(), 0, 0, NULL)";
-                    if (!mysqli_query($con, $medicalRecordQuery)) {
-                        throw new Exception('Error inserting medical record: ' . mysqli_error($con));
+                    $medicalRecordQuery = "INSERT INTO tblmedical_record (pet_ID, vet_ID, Appt_ID, diagnosis, treatment, notes, created_at, weight, temp) 
+                                           VALUES (?, NULL, ?, '', '', '', CURDATE(), 0, 0)";
+                    if ($stmt_medical = $con->prepare($medicalRecordQuery)) {
+                        $stmt_medical->bind_param("ii", $pet_id, $Appt_ID);
+                        if (!$stmt_medical->execute()) {
+                            throw new Exception('Error inserting medical record: ' . $stmt_medical->error);
+                        }
+                        $stmt_medical->close();
+                    } else {
+                        throw new Exception('Error preparing medical record insert statement: ' . $con->error);
                     }
                 }
             }
@@ -85,10 +135,11 @@ if (isset($_POST['addAppointment'])) {
         echo "<script>alert('Appointment(s) added successfully.');</script>";
     } catch (Exception $e) {
         mysqli_rollback($con);
-        echo "<script>alert('Error: " . $e->getMessage() . "');</script>";
+        echo "<script>alert('Error: " . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') . "');</script>";
     }
 }
 
+// Fetch services available
 $serviceResult = mysqli_query($con, "SELECT * FROM tblservices WHERE status != 'Not Available'");
 ?>
 <!DOCTYPE HTML>
@@ -211,9 +262,10 @@ $serviceResult = mysqli_query($con, "SELECT * FROM tblservices WHERE status != '
                                                 $clientQuery = "SELECT client_id, Name FROM tblclients";
                                                 $clientResult = mysqli_query($con, $clientQuery);
                                                 while ($client = mysqli_fetch_assoc($clientResult)) {
-                                                    echo "<option value='" . htmlspecialchars($client['client_id']) . "'>" . htmlspecialchars($client['Name']) . "</option>";
+                                                    echo "<option value='" . htmlspecialchars($client['client_id'], ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars($client['Name'], ENT_QUOTES, 'UTF-8') . "</option>";
                                                 }
                                                 ?>
+                                                <option value="">Add New Client</option>
                                             </select>
                                         </div>
 
@@ -235,10 +287,22 @@ $serviceResult = mysqli_query($con, "SELECT * FROM tblservices WHERE status != '
                                                 <label for="pGender[]">Pet Gender</label>
                                                 <select class="form-control" name="pGender[]" required>
                                                     <option value="" disabled selected>Select pet gender</option>
-                                                    <option value="male">Male</option>
-                                                    <option value="female">Female</option>
-                                                    <option value="other">Other</option>
+                                                    <option value="Male">Male</option>
+                                                    <option value="Female">Female</option>
+                                                    <option value="Other">Other</option>
                                                 </select>
+
+                                                <label for="Age[]">Age (Years)</label>
+                                                <input type="number" min="0" class="form-control" name="Age[]" required placeholder="Enter pet age">
+
+                                                <label for="Species[]">Species</label>
+                                                <input type="text" class="form-control" name="Species[]" required placeholder="Enter pet species">
+
+                                                <label for="Birthdate[]">Birthdate</label>
+                                                <input type="date" class="form-control" name="Birthdate[]" required>
+
+                                                <label for="Color[]">Color</label>
+                                                <input type="text" class="form-control" name="Color[]" required placeholder="Enter pet color">
 
                                                 <label for="service_id[]">Services for this Pet</label>
                                                 <div class="service-container">
@@ -247,9 +311,9 @@ $serviceResult = mysqli_query($con, "SELECT * FROM tblservices WHERE status != '
                                                             <?php 
                                                             // Reset the pointer to the beginning
                                                             mysqli_data_seek($serviceResult, 0);
-                                                            while ($row = mysqli_fetch_assoc($serviceResult)) { 
+                                                            while ($service = mysqli_fetch_assoc($serviceResult)) { 
                                                             ?>
-                                                                <option value="<?php echo htmlspecialchars($row['service_id']); ?>"><?php echo htmlspecialchars($row['ServiceName']); ?></option>
+                                                                <option value="<?php echo htmlspecialchars($service['service_id'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($service['ServiceName'], ENT_QUOTES, 'UTF-8'); ?></option>
                                                             <?php 
                                                             } 
                                                             ?>
@@ -288,7 +352,7 @@ $serviceResult = mysqli_query($con, "SELECT * FROM tblservices WHERE status != '
                                         </div>
                                     </div>
                                     <div class="modal-footer">
-                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                                         <button type="submit" class="btn btn-primary" name="addAppointment">Add Appointment</button>
                                     </div>
                                 </form>
@@ -448,10 +512,22 @@ $serviceResult = mysqli_query($con, "SELECT * FROM tblservices WHERE status != '
                                 <label for="pGender[]">Pet Gender</label>
                                 <select class="form-control" name="pGender[]" required>
                                     <option value="" disabled selected>Select pet gender</option>
-                                    <option value="male">Male</option>
-                                    <option value="female">Female</option>
-                                    <option value="other">Other</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
                                 </select>
+
+                                <label for="Age[]">Age (Years)</label>
+                                <input type="number" min="0" class="form-control" name="Age[]" required placeholder="Enter pet age">
+
+                                <label for="Species[]">Species</label>
+                                <input type="text" class="form-control" name="Species[]" required placeholder="Enter pet species">
+
+                                <label for="Birthdate[]">Birthdate</label>
+                                <input type="date" class="form-control" name="Birthdate[]" required>
+
+                                <label for="Color[]">Color</label>
+                                <input type="text" class="form-control" name="Color[]" required placeholder="Enter pet color">
 
                                 <label for="service_id[]">Services for this Pet</label>
                                 <div class="service-container">
@@ -460,9 +536,9 @@ $serviceResult = mysqli_query($con, "SELECT * FROM tblservices WHERE status != '
                                             <?php 
                                             // Reset the pointer to the beginning
                                             mysqli_data_seek($serviceResult, 0);
-                                            while ($row = mysqli_fetch_assoc($serviceResult)) { 
+                                            while ($service = mysqli_fetch_assoc($serviceResult)) { 
                                             ?>
-                                                <option value="<?php echo htmlspecialchars($row['service_id']); ?>"><?php echo htmlspecialchars($row['ServiceName']); ?></option>
+                                                <option value="<?php echo htmlspecialchars($service['service_id'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($service['ServiceName'], ENT_QUOTES, 'UTF-8'); ?></option>
                                             <?php 
                                             } 
                                             ?>

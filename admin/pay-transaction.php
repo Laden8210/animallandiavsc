@@ -7,10 +7,10 @@ if (empty($_SESSION['id'])) {
     exit();
 }
 
-$trid = intval($_GET['transid']);
+$trid = $_GET['transid'];
 
 $statusQuery = $con->prepare("SELECT status, pet_ID FROM tbltransaction WHERE Trans_Code = ?");
-$statusQuery->bind_param('i', $trid);
+$statusQuery->bind_param('s', $trid);
 $statusQuery->execute();
 $statusResult = $statusQuery->get_result();
 $statusRow = $statusResult->fetch_assoc();
@@ -21,7 +21,7 @@ if (isset($_POST['updateStatus'])) {
     $status = $_POST['status'];
     $query = "UPDATE tbltransaction SET status = ? WHERE Trans_Code = ?";
     $stmt = $con->prepare($query);
-    $stmt->bind_param('si', $status, $trid);
+    $stmt->bind_param('ss', $status, $trid);
     if ($stmt->execute()) {
         echo "<script>alert('Payment status updated successfully.');</script>";
     } else {
@@ -38,7 +38,7 @@ if (isset($_POST['cashReceived']) && !$isPaid) {
     FROM tbltransaction 
     JOIN tblservices ON tblservices.service_id = tbltransaction.service_id 
     WHERE tbltransaction.Trans_Code = ?");
-$serviceQuery->bind_param('i', $trid);
+$serviceQuery->bind_param('s', $trid);
 $serviceQuery->execute();
 $result = $serviceQuery->get_result();
 if ($row = $result->fetch_assoc()) {
@@ -48,7 +48,7 @@ if ($row = $result->fetch_assoc()) {
     $productQuery = $con->prepare("SELECT SUM(tblproducts.price * tbltransaction.Qty) AS totalCost FROM tbltransaction 
         JOIN tblproducts ON tblproducts.ProductID = tbltransaction.ProductID 
         WHERE tbltransaction.Trans_Code = ?");
-    $productQuery->bind_param('i', $trid);
+    $productQuery->bind_param('s', $trid);
     $productQuery->execute();
     $result = $productQuery->get_result();
     if ($row = $result->fetch_assoc()) {
@@ -74,7 +74,7 @@ if ($row = $result->fetch_assoc()) {
 
     $updateTransactionQuery = "UPDATE tbltransaction SET billingid = ?, status = 'Paid' WHERE Trans_Code = ?";
     $stmt = $con->prepare($updateTransactionQuery);
-    $stmt->bind_param('ii', $billingid, $trid);
+    $stmt->bind_param('is', $billingid, $trid);
     $stmt->execute();
 
     echo "<script>alert('Payment received successfully, and status updated to Paid.');</script>";
@@ -82,7 +82,7 @@ if ($row = $result->fetch_assoc()) {
 
 $billingQuery = $con->prepare("SELECT cashReceived, changeAmount FROM tblbilling 
     WHERE billingid = (SELECT billingid FROM tbltransaction WHERE Trans_Code = ? LIMIT 1)");
-$billingQuery->bind_param('i', $trid);
+$billingQuery->bind_param('s', $trid);
 $billingQuery->execute();
 $billingData = $billingQuery->get_result()->fetch_assoc();
 $cashReceived = $billingData['cashReceived'] ?? 0;
@@ -182,7 +182,7 @@ $changeAmount = $billingData['changeAmount'] ?? 0;
                     LEFT JOIN tblpet ON tblpet.pet_ID = tbltransaction.pet_ID
                     WHERE tbltransaction.Trans_Code = ?");
                     
-                    $ret->bind_param('i', $trid);
+                    $ret->bind_param('s', $trid);
                     $ret->execute();
                     $result = $ret->get_result();
                     while ($row = $result->fetch_assoc()) {
@@ -255,7 +255,7 @@ echo htmlspecialchars($formattedDate . ' - ' . $formattedTime);
                             FROM tbltransaction 
                             JOIN tblproducts ON tblproducts.ProductID = tbltransaction.ProductID 
                             WHERE tbltransaction.Trans_Code = ?");
-                            $ret->bind_param('ii', $trid, $trid);
+                            $ret->bind_param('ss', $trid, $trid);
                             $ret->execute();
                             $result = $ret->get_result();
                             while ($row = $result->fetch_assoc()) {

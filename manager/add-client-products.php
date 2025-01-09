@@ -126,7 +126,9 @@ if (isset($_POST['submit'])) {
     <tbody>
         <?php
         $current_date = date('Y-m-d');
-        $ret = mysqli_query($con, "SELECT * FROM tblproducts WHERE ExpirationDate >= '$current_date' OR ExpirationDate IS NULL");
+        $ret = mysqli_query($con, "SELECT * FROM tblproducts
+        join tblinventory on tblproducts.ProductID = tblinventory.ProductID
+         WHERE tblinventory.ExpirationDate >= '$current_date' OR ExpirationDate IS NULL");
         $cnt = 1;
         while ($row = mysqli_fetch_array($ret)) {
         ?>

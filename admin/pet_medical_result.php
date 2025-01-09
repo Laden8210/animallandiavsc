@@ -51,10 +51,12 @@ $result = $con->query($sql);
     <link href="css/font-awesome.css" rel="stylesheet">
     <script src="js/jquery-1.11.1.min.js"></script>
     <script src="js/modernizr.custom.js"></script>
-   
+
     <link href="css/animate.css" rel="stylesheet" type="text/css" media="all">
     <script src="js/wow.min.js"></script>
-    <script> new WOW().init(); </script>
+    <script>
+        new WOW().init();
+    </script>
     <script src="js/metisMenu.min.js"></script>
     <script src="js/custom.js"></script>
     <link href="css/custom.css" rel="stylesheet">
@@ -120,6 +122,7 @@ $result = $con->query($sql);
             border-radius: 4px;
             cursor: pointer;
         }
+
         .view-button {
             background-color: #5bc0de;
             color: white;
@@ -129,6 +132,7 @@ $result = $con->query($sql);
             border-radius: 4px;
             cursor: pointer;
         }
+
         .add-button {
             background-color: #337ab7;
             color: white;
@@ -142,9 +146,11 @@ $result = $con->query($sql);
         .update-button:hover {
             background-color: #4cae4c;
         }
+
         .view-button:hover {
             background-color: #46b8da;
         }
+
         .add-button:hover {
             background-color: #2e6da4;
         }
@@ -159,14 +165,15 @@ $result = $con->query($sql);
         <div id="page-wrapper">
             <div class="main-page">
                 <div class="tables">
-                    <br><br><br><h2 class="mt-4">Medical Record List</h2>
+                    <br><br><br>
+                    <h2 class="mt-4">Medical Record List</h2>
                     <br>
                     <div class="search-bar">
-    <form method="GET" action="">
-        <input type="text" name="search" placeholder="Search by Pet or Owner Name" value="<?php echo htmlspecialchars($search); ?>">
-        <button type="submit">Search</button>
-    </form>
-</div>
+                        <form method="GET" action="">
+                            <input type="text" name="search" placeholder="Search by Pet or Owner Name" value="<?php echo htmlspecialchars($search); ?>">
+                            <button type="submit">Search</button>
+                        </form>
+                    </div>
 
                     <table class="styled-table">
                         <thead>
@@ -204,8 +211,8 @@ $result = $con->query($sql);
                     </table>
                 </div>
                 <button class="btn btn-default" onclick="history.back()">Previous</button>
+            </div>
         </div>
-    </div>
 </body>
 
 </html>
