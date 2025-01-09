@@ -1,0 +1,8 @@
+# Ignore root includes directory
+/includes/
+
+# Ignore includes directories in specific subdirectories
+/admin/includes/
+/staff/includes/
+/manager/includes/
+/api/includes/
